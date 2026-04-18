@@ -3,3 +3,7 @@
 agent_memory.db
 .venv/
 .DS_Store
+t.py
+.env
+.vscode/
+.
