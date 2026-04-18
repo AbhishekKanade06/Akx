@@ -12,9 +12,11 @@ A Codex-style CLI agent built with LangGraph, LangChain, and your own LLM. Suppo
 - LangGraph state machine with a clean agentic loop
 - Human-in-the-loop approval gate before any tool runs
 - Persistent memory across sessions via SQLite checkpointing
+- Auto-resume into the latest saved session on startup
+- Slash commands for model, status, resume, new session, and exit
 - Built-in tools: shell executor, file read/write, directory listing
 - Swap any LLM — Ollama, Mistral, LLaMA, GPT-4o, Groq, and more
-- Rich terminal UI with markdown rendering
+- Rich terminal UI with panels, markdown rendering, and session timestamps
 
 ---
 
@@ -42,7 +44,7 @@ Akx/
 
 ## Requirements
 
-- Python >= 3.14
+- Python >= 3.13,<3.14
 - [uv](https://github.com/astral-sh/uv) (recommended) or pip
 - [Ollama](https://ollama.com) for local models
 
@@ -59,7 +61,7 @@ cd akx
 uv sync
 
 # Or with pip
-pip install langgraph langchain-openai langchain-core langgraph-checkpoint-sqlite rich typer
+pip install -e .
 ```
 
 ---
@@ -82,6 +84,7 @@ python main.py
 
 ```bash
 export OPENAI_API_KEY=sk-...
+export AGENT_PROVIDER=openai
 export AGENT_MODEL=gpt-4o
 python main.py
 ```
@@ -91,9 +94,33 @@ python main.py
 ```bash
 export AGENT_BASE_URL=https://api.groq.com/openai/v1
 export OPENAI_API_KEY=gsk_...
+export AGENT_PROVIDER=groq
 export AGENT_MODEL=llama3-8b-8192
 python main.py
 ```
+
+---
+
+## CLI Commands
+
+| Command | Description |
+|---|---|
+| `/model` | Show the active model |
+| `/status` | Show runtime config and saved sessions |
+| `/session` | Show the current session |
+| `/resume` | Open a numbered picker for saved sessions |
+| `/new` | Start a fresh auto-named session |
+| `/exit` | Quit the CLI |
+
+---
+
+## Session Behavior
+
+- The CLI automatically resumes the latest saved session on startup
+- Conversations are stored in `agent_memory.db` through LangGraph SQLite checkpoints
+- `/status` shows saved sessions with their last-updated timestamps
+- `/resume` lets you switch sessions without remembering ids
+- `/new` creates a fresh session id like `session-1`, `session-2`, and so on
 
 ---
 
@@ -101,6 +128,7 @@ python main.py
 
 | Variable | Default | Description |
 |---|---|---|
+| `AGENT_PROVIDER` | `groq` | Provider name used by the app |
 | `AGENT_MODEL` | `gpt-4o` | Model name to use |
 | `AGENT_BASE_URL` | `None` | Custom API base URL (Ollama, vLLM, Groq) |
 | `OPENAI_API_KEY` | `ollama` | API key |
@@ -112,28 +140,53 @@ python main.py
 ## Example Session
 
 ```
-CLI Agent — type exit to quit
+AKX CLI AGENT
 
->>> list the files in the current directory
+Session: default
+Saved messages: 18
+Updated: 2026-04-18 23:58
 
+default> /status
+
+Provider      groq
+Model         llama3-8b-8192
+Base URL      https://api.groq.com/openai/v1
+Max Tokens    4096
+Auto Approve  False
+Thread ID     default
+Updated       2026-04-18 23:58
+
+Saved Sessions
+default       2026-04-18 23:58   current
+session-1     2026-04-18 23:41
+
+default> list the files in the current directory
+
+Approval Required
 Tool: list_dir
-{'path': '.'}
+Args: {'path': '.'}
 Run these tools? [Y/n]: y
 
 main.py  config.py  memory.py  agent/  pyproject.toml
 
->>> create a hello.py with a hello world script
+default> create a hello.py with a hello world script
 
+Approval Required
 Tool: write_file
-{'path': 'hello.py', 'content': 'print("Hello, world!")'}
+Args: {'path': 'hello.py', 'content': 'print("Hello, world!")'}
 Run these tools? [Y/n]: y
 
 Done! hello.py has been created.
 
->>> run it
+default> /resume
 
+Resume session number: 2
+
+session-1> run it
+
+Approval Required
 Tool: run_shell
-{'command': 'python hello.py'}
+Args: {'command': 'python hello.py'}
 Run these tools? [Y/n]: y
 
 Hello, world!
@@ -180,7 +233,6 @@ ALL_TOOLS = [run_shell, read_file, write_file, list_dir, my_tool]
 - [ ] Streaming token output
 - [ ] Web search tool
 - [ ] Diff preview before file writes
-- [ ] `--resume` flag to continue previous sessions
 - [ ] `--model` CLI flag to switch LLMs on the fly
 - [ ] Token usage display
 

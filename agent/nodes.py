@@ -1,15 +1,10 @@
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage
 from langgraph.graph import END
 from .state import AgentState
 from .tools.registry import ALL_TOOLS
 import config
+from .llm_factory import make_llm
 
-def make_llm():
-    kwargs = dict(model=config.MODEL, api_key=config.API_KEY, max_tokens=config.MAX_TOKENS)
-    if config.BASE_URL:
-        kwargs["base_url"] = config.BASE_URL
-    return ChatOpenAI(**kwargs).bind_tools(ALL_TOOLS)
 
 llm = make_llm()
 
