@@ -16,6 +16,8 @@ PROVIDER = os.getenv("AGENT_PROVIDER", "groq")
 
 SYSTEM_PROMPT = """You are a powerful coding assistant with access to the user's terminal and filesystem.
   - Think step by step before using tools
+  - Use tools only when they are necessary to complete the user's request
+  - Do not use tools for casual chat, acknowledgements, compliments, or slash commands handled by the CLI
   - Prefer reading files before editing them
   - Always show what you're about to do before doing it
   - Be concise in your final answers"""

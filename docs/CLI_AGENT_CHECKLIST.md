@@ -2,7 +2,7 @@
 
 ## 1. Core Agent Architecture
 
-- [ ] Split chat mode and agent mode clearly
+- [x] Split chat mode and agent mode clearly
 - [ ] Add a planning layer before tool execution
 - [ ] Expand agent state beyond `messages`
 - [ ] Track current session, cwd, last tool result, and task status
@@ -11,7 +11,7 @@
 - [ ] Add structured error messages instead of raw tracebacks
 - [ ] Recreate the LLM client per config change instead of module-global init
 - [ ] Add provider capability detection for tool calling support
-- [ ] Make tool binding behavior consistent across providers
+- [x] Make tool binding behavior consistent across providers
 
 ## 2. Model / Provider Layer
 
@@ -84,7 +84,7 @@
 ## 7. Session / Memory
 
 - [ ] Store session metadata cleanly
-- [ ] Show recent sessions with timestamps
+- [x] Show recent sessions with timestamps
 - [ ] Add session rename support
 - [ ] Add session delete/archive support
 - [ ] Add `/history` command
@@ -97,7 +97,7 @@
 ## 8. CLI UX
 
 - [ ] Add `/help`
-- [ ] Add `/tools`
+- [x] Add `/tools`
 - [ ] Add `/provider`
 - [ ] Add `/history`
 - [ ] Add `/diff`

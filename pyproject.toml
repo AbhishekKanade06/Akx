@@ -13,5 +13,6 @@ dependencies = [
     "typer",
     "langchain_groq",
     "dotenv",
-    "langchain_google_genai"
+    "langchain_google_genai",
+    "langchain_anthropic"
 ]
