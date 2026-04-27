@@ -6,10 +6,11 @@ from langgraph.graph import END
 from .state import AgentState
 import config
 from .llm_factory import make_llm
+from .tools.registry import ALL_TOOLS
 
 
-chat_llm = make_llm(enable_tools=False)
-tool_llm = make_llm(enable_tools=True)
+chat_llm = make_llm()
+tool_llm = make_llm(tools=ALL_TOOLS)
 
 
 class Intent(str, Enum):
@@ -44,6 +45,11 @@ ACTION_HINTS = (
     "explain",
     "inspect",
     "analyze",
+    "search",
+    "lookup",
+    "look up",
+    "browse",
+    "research",
 )
 
 TARGET_HINTS = (
@@ -58,6 +64,21 @@ TARGET_HINTS = (
     "uv",
     "pip",
     "npm",
+)
+
+WEB_INFO_HINTS = (
+    "news",
+    "latest",
+    "recent",
+    "current",
+    "today",
+    "yesterday",
+    "web",
+    "internet",
+    "online",
+    "anthropic",
+    "openai",
+    "google",
 )
 
 PATH_PATTERN = re.compile(r"([~/]|\./|\.\./|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
@@ -78,6 +99,16 @@ def looks_like_action_request(text: str) -> bool:
     return has_target or has_path or has_file_ext or has_code_marker or has_shell_shape
 
 
+def has_recent_tool_context(state: AgentState, window: int = 4) -> bool:
+    recent_messages = state["messages"][-(window + 1):-1]
+    for message in reversed(recent_messages):
+        if isinstance(message, ToolMessage):
+            return True
+        if getattr(message, "tool_calls", None):
+            return True
+    return False
+
+
 def classify_intent(state: AgentState) -> Intent:
     last = state["messages"][-1]
     if isinstance(last, ToolMessage):
@@ -92,6 +123,10 @@ def classify_intent(state: AgentState) -> Intent:
         return Intent.LOCAL_COMMAND
     if len(text.split()) <= 2:
         return Intent.CHAT
+    if any(hint in text for hint in WEB_INFO_HINTS):
+        return Intent.TOOL_TASK
+    if has_recent_tool_context(state):
+        return Intent.TOOL_TASK
     if looks_like_action_request(text):
         return Intent.TOOL_TASK
     return Intent.CHAT

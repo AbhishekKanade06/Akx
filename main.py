@@ -11,6 +11,7 @@ import ast
 import hashlib
 import random
 import re
+import shlex
 import sys
 import termios
 import tty
@@ -33,11 +34,65 @@ WORKSPACE_BORDER = "bright_magenta"
 STATUS_BORDER = "bright_green"
 ASSISTANT_BORDER = "deep_sky_blue1"
 TOOL_BORDER = "bright_yellow"
+ERROR_BORDER = "bright_red"
 MUTED_TEXT = "grey70"
 HEADER_STYLE = "bold white on rgb(0,95,135)"
 HEADER_SUBTITLE = "session-aware • tool-enabled • local-first"
 PROMPT_ICON = "◈"
 THEME_NAME = "Neon Grid"
+
+SAFE_SHELL_COMMANDS = {
+    ("cat",),
+    ("date",),
+    ("echo",),
+    ("env",),
+    ("find",),
+    ("git", "branch"),
+    ("git", "diff"),
+    ("git", "log"),
+    ("git", "rev-parse"),
+    ("git", "show"),
+    ("git", "status"),
+    ("grep",),
+    ("head",),
+    ("ls",),
+    ("printenv",),
+    ("ps",),
+    ("pwd",),
+    ("rg",),
+    ("tail",),
+    ("uname",),
+    ("wc",),
+    ("whereis",),
+    ("which",),
+    ("whoami",),
+}
+
+SHELL_UNSAFE_TOKENS = {"&&", "||", "|", ";", ">", ">>", "<", "<<", "*", "?"}
+SENSITIVE_PATH_MARKERS = (
+    ".env",
+    ".ssh",
+    ".aws",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git-credentials",
+    "id_rsa",
+    "id_ed25519",
+    "known_hosts",
+    "authorized_keys",
+    "credentials",
+    "secret",
+    "secrets",
+    "token",
+    "tokens",
+    "apikey",
+    "api_key",
+    "private_key",
+    "private-key",
+    "pem",
+    "key",
+)
 
 THEMES = [
     {
@@ -187,6 +242,59 @@ def print_plain_panel(text: str, title: str, border_style: str, icon: str):
     )
 
 
+def print_error_panel(title: str, error: Exception | str):
+    message = str(error).strip() or error.__class__.__name__
+    console.print(
+        Panel(
+            message,
+            title=f"[bold {ERROR_BORDER}]Error: {title}[/bold {ERROR_BORDER}]",
+            border_style=ERROR_BORDER,
+            box=box.HEAVY,
+            padding=(0, 1),
+        )
+    )
+
+
+def is_safe_shell_command(command: str) -> bool:
+    if not command or any(token in command for token in SHELL_UNSAFE_TOKENS):
+        return False
+
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return False
+
+    if not parts:
+        return False
+
+    if parts[0] in {"env", "printenv"}:
+        return False
+
+    joined = " ".join(parts[1:]).lower()
+    if any(marker in joined for marker in SENSITIVE_PATH_MARKERS):
+        return False
+
+    if len(parts) >= 2 and tuple(parts[:2]) in SAFE_SHELL_COMMANDS:
+        return True
+    return (parts[0],) in SAFE_SHELL_COMMANDS
+
+
+def tool_call_needs_approval(tool_call: dict) -> bool:
+    name = tool_call.get("name")
+    args = tool_call.get("args", {})
+
+    if name in {"read_file", "list_dir"}:
+        return False
+
+    if name == "web_search":
+        return args.get("search_depth", "basic") != "basic"
+
+    if name == "run_shell":
+        return not is_safe_shell_command(str(args.get("command", "")).strip())
+
+    return True
+
+
 def show_tools():
     tools_text = "\n".join(
         [
@@ -194,6 +302,7 @@ def show_tools():
             "read_file: read a file from disk",
             "write_file: create or overwrite a file",
             "list_dir: list files and folders in a directory",
+            "web_search: search the web for current information and news",
         ]
     )
     print_plain_panel(tools_text, "Tools", STATUS_BORDER, TOOL_ICON)
@@ -642,59 +751,74 @@ def run():
             )
             continue
 
-        inputs = {"messages": [HumanMessage(content=user_input)]}
+        try:
+            inputs = {"messages": [HumanMessage(content=user_input)]}
 
-        # ── Agentic loop ──────────────────────────────────────
-        while True:
-            # Stream events until graph pauses (interrupt) or ends
-            final_text = ""
-            for event in graph.stream(inputs, thread, stream_mode="values"):
-                last = event["messages"][-1]
+            # ── Agentic loop ──────────────────────────────────────
+            while True:
+                # Stream events until graph pauses (interrupt) or ends
+                final_text = ""
+                for event in graph.stream(inputs, thread, stream_mode="values"):
+                    last = event["messages"][-1]
 
-                # Stream LLM text responses
-                if (
-                    hasattr(last, "content")
-                    and last.content
-                    and not getattr(last, "tool_calls", None)
-                ):
-                    final_text = last.content
+                    # Stream LLM text responses
+                    if (
+                        hasattr(last, "content")
+                        and last.content
+                        and not getattr(last, "tool_calls", None)
+                    ):
+                        final_text = last.content
 
-            if final_text:
-                print_response(final_text)
+                if final_text:
+                    print_response(final_text)
 
-            # Check if graph is paused at approval gate
-            state = graph.get_state(thread)
-            refreshed = get_session_info(memory, thread_id)
-            if refreshed:
-                session_label = refreshed.get("label", session_label)
-            if not state.next:
-                break  # graph finished
+                # Check if graph is paused at approval gate
+                state = graph.get_state(thread)
+                refreshed = get_session_info(memory, thread_id)
+                if refreshed:
+                    session_label = refreshed.get("label", session_label)
+                if not state.next:
+                    break  # graph finished
 
-            # ── Approval gate ──────────────────────────────────
-            pending = state.values["messages"][-1]
-            for tc in pending.tool_calls:
-                console.print(
-                    Panel(
-                        f"[bold]{TOOL_ICON} Tool:[/bold] {tc['name']}\n[bold]Args:[/bold] {tc['args']}",
-                        title="[bold yellow]Approval Required[/bold yellow]",
-                        border_style=TOOL_BORDER,
-                        box=box.HEAVY,
-                        padding=(0, 1),
-                    )
-                )
-
-            approved = Confirm.ask(
-                "[bold yellow]Run these tools?[/bold yellow]", default=True
-            )
-            if not approved:
-                # Inject a cancellation message and resume
-                cancel_msgs = [
-                    ToolMessage(content="Cancelled by user.", tool_call_id=tc["id"])
-                    for tc in pending.tool_calls
+                # ── Approval gate ──────────────────────────────────
+                pending = state.values["messages"][-1]
+                tool_calls_needing_approval = [
+                    tc for tc in pending.tool_calls if tool_call_needs_approval(tc)
                 ]
-                graph.update_state(thread, {"messages": cancel_msgs}, as_node="tools")
 
-            inputs = None  # resume with no new input
+                if not tool_calls_needing_approval:
+                    inputs = None
+                    continue
+
+                for tc in tool_calls_needing_approval:
+                    console.print(
+                        Panel(
+                            f"[bold]{TOOL_ICON} Tool:[/bold] {tc['name']}\n[bold]Args:[/bold] {tc['args']}",
+                            title="[bold yellow]Approval Required[/bold yellow]",
+                            border_style=TOOL_BORDER,
+                            box=box.HEAVY,
+                            padding=(0, 1),
+                        )
+                    )
+
+                approved = Confirm.ask(
+                    "[bold yellow]Run these tools?[/bold yellow]", default=True
+                )
+                if not approved:
+                    # Inject a cancellation message and resume
+                    cancel_msgs = [
+                        ToolMessage(content="Cancelled by user.", tool_call_id=tc["id"])
+                        for tc in tool_calls_needing_approval
+                    ]
+                    graph.update_state(thread, {"messages": cancel_msgs}, as_node="tools")
+
+                inputs = None  # resume with no new input
+        except KeyboardInterrupt:
+            print_plain_panel("Request cancelled.", "Cancelled", TOOL_BORDER, TOOL_ICON)
+            continue
+        except Exception as error:
+            print_error_panel("Request Failed", error)
+            continue
 
 
 if __name__ == "__main__":
